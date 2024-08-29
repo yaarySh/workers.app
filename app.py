@@ -1,21 +1,71 @@
-# app.py
 from flask import Flask, jsonify, request
-from db_connection import get_db_connection
+from flask_cors import CORS
+import psycopg2
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
+CORS(
+    app, origins=["https://workers-front.onrender.com"]
+)  # Allow specific frontend origin
+
+
+def get_db_connection():
+    conn = psycopg2.connect(
+        host=os.getenv("DB_HOST"),
+        database=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+    )
+    return conn
 
 
 @app.route("/workers", methods=["GET"])
 def get_workers():
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, name, job, phone, picture FROM workers;")
+    cur.execute("SELECT * FROM workers;")
     workers = cur.fetchall()
     cur.close()
     conn.close()
 
-    # No need to manually convert to dictionaries
-    return jsonify(workers)
+    workers_list = [
+        {
+            "id": worker[0],
+            "name": worker[1],
+            "job": worker[2],
+            "phone": worker[3],
+            "picture": worker[4],
+        }
+        for worker in workers
+    ]
+    return jsonify(workers_list)
+
+
+@app.route("/workers/<int:id>", methods=["GET"])
+def get_worker(id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM workers WHERE id = %s;", (id,))
+    worker = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if worker:
+        return jsonify(
+            {
+                "id": worker[0],
+                "name": worker[1],
+                "job": worker[2],
+                "phone": worker[3],
+                "picture": worker[4],
+            }
+        )
+    else:
+        return jsonify({"result": "Worker not found"}), 404
 
 
 @app.route("/workers", methods=["POST"])
@@ -43,76 +93,32 @@ def add_worker():
 def delete_worker(id):
     conn = get_db_connection()
     cur = conn.cursor()
-
-    # Check if worker exists
-    cur.execute("SELECT id FROM workers WHERE id = %s;", (id,))
-    worker = cur.fetchone()
-
-    if worker:
-        cur.execute("DELETE FROM workers WHERE id = %s;", (id,))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return jsonify({"result": "Worker deleted successfully"}), 200
-    else:
-        cur.close()
-        conn.close()
-        return jsonify({"result": "Worker not found"}), 404
-
-
-@app.route("/workers/<int:id>", methods=["GET"])
-def get_worker_by_id(id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT id, name, job, phone, picture FROM workers WHERE id = %s;", (id,)
-    )
-    worker = cur.fetchone()
+    cur.execute("DELETE FROM workers WHERE id = %s;", (id,))
+    conn.commit()
     cur.close()
     conn.close()
-
-    if worker:
-        return jsonify(worker)  # worker is already a dictionary
-    else:
-        return jsonify({"result": "Worker not found"}), 404
+    return jsonify({"result": "Worker deleted successfully"})
 
 
 @app.route("/workers/<int:id>", methods=["PUT"])
 def update_worker(id):
+    updated_worker = request.get_json()
     conn = get_db_connection()
     cur = conn.cursor()
-
-    # Get the data from the request
-    updated_data = request.get_json()
-
-    # Check if worker exists
-    cur.execute("SELECT id FROM workers WHERE id = %s;", (id,))
-    worker = cur.fetchone()
-
-    if worker:
-        # Update the worker details
-        cur.execute(
-            """
-            UPDATE workers 
-            SET name = %s, job = %s, phone = %s, picture = %s
-            WHERE id = %s;
-            """,
-            (
-                updated_data.get("name"),
-                updated_data.get("job"),
-                updated_data.get("phone"),
-                updated_data.get("picture"),
-                id,
-            ),
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-        return jsonify({"result": "Worker updated successfully"}), 200
-    else:
-        cur.close()
-        conn.close()
-        return jsonify({"result": "Worker not found"}), 404
+    cur.execute(
+        "UPDATE workers SET name = %s, job = %s, phone = %s, picture = %s WHERE id = %s;",
+        (
+            updated_worker["name"],
+            updated_worker["job"],
+            updated_worker["phone"],
+            updated_worker["picture"],
+            id,
+        ),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({"result": "Worker updated successfully"})
 
 
 if __name__ == "__main__":
